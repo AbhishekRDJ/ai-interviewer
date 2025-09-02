@@ -47,4 +47,31 @@ ${transcript}
 """`;
 }
 
+export function buildScoringPrompt(transcript: string, configJson: string) {
+  return `You are an expert interviewer scoring assistant for an SDR screening.
+You will score each question's response and provide an overall summary.
+
+Scoring rules:
+- For questions with required elements, assess presence of each element
+- Rate each answer 1-5 (1=poor, 3=acceptable, 5=excellent)
+- Provide one-sentence feedback per answer
+- Provide an overall score 1-5 and a short summary (2-3 sentences)
+
+Return strict JSON with:
+{
+  "perQuestion": [
+    {"id": string, "score": number, "feedback": string, "elements": Record<string, boolean>}
+  ],
+  "overall": {"score": number, "summary": string}
+}
+
+Interview config (JSON):
+${configJson}
+
+Full transcript:
+"""
+${transcript}
+"""`;
+}
+
 

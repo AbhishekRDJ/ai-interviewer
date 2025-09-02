@@ -11,14 +11,16 @@ type Props = {
   disabled?: boolean;
   isPaused?: boolean;
   isListening?: boolean;
+  isRunning?: boolean;
+  phase?: "idle" | "speaking" | "listening" | "evaluating" | "wrap_up" | "completed";
 };
 
-export default function InterviewControls({ onStart, onStop, onPauseResume, onRepeat, onNext, onAnswer, onSubmit, disabled, isPaused, isListening }: Props) {
+export default function InterviewControls({ onStart, onStop, onPauseResume, onRepeat, onNext, onAnswer, onSubmit, disabled, isPaused, isListening, isRunning, phase }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button
         onClick={onStart}
-        disabled={disabled}
+        disabled={disabled || isRunning}
         className="bg-black dark:bg-white disabled:opacity-50 px-4 py-2 rounded text-white dark:text-black"
       >
         Start
@@ -32,7 +34,7 @@ export default function InterviewControls({ onStart, onStop, onPauseResume, onRe
       <button
         onClick={onAnswer}
         className="px-4 py-2 border rounded"
-        disabled={isListening}
+        disabled={isListening || phase === "speaking"}
       >
         Answer
       </button>

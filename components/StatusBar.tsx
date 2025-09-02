@@ -1,7 +1,7 @@
 "use client";
 
 type Props = {
-  phase: "idle" | "speaking" | "listening" | "evaluating" | "transition";
+  phase: "idle" | "speaking" | "listening" | "evaluating" | "transition" | "wrap_up" | "completed";
   secondsRemaining?: number;
   questionIndex: number;
   totalQuestions: number;
@@ -14,6 +14,8 @@ export default function StatusBar({ phase, secondsRemaining, questionIndex, tota
     listening: "Listening…",
     evaluating: "Evaluating…",
     transition: "Next question…",
+    wrap_up: "Wrapping up…",
+    completed: "Completed",
   }[phase];
 
   return (

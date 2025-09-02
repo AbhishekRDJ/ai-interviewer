@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type DailyIframe from "@daily-co/daily-js";
+// Daily types are ESM; import type via typeof to avoid value/type confusion
+import type * as DailyNS from "@daily-co/daily-js";
 
-type Props = { roomUrl: string };
+type Props = { roomUrl: string; onReady?: (api: { startRecording: () => Promise<void>; stopRecording: () => Promise<void> }) => void };
 
-export default function VideoCall({ roomUrl }: Props) {
+export default function VideoCall({ roomUrl, onReady }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [joined, setJoined] = useState(false);
+  const callRef = useRef<DailyNS.DailyCall | null>(null);
 
   useEffect(() => {
-    let call: DailyIframe | null = null;
+    let call: DailyNS.DailyCall | null = null;
     let isCancelled = false;
 
     async function join() {
@@ -27,12 +29,29 @@ export default function VideoCall({ roomUrl }: Props) {
       });
       await call.join({ url: roomUrl });
       if (!isCancelled) setJoined(true);
+      if (!isCancelled) {
+        callRef.current = call;
+        const startRecording = async () => {
+          try {
+            // @ts-ignore - startRecording exists at runtime
+            await callRef.current?.startRecording?.({});
+          } catch {}
+        };
+        const stopRecording = async () => {
+          try {
+            // @ts-ignore - stopRecording exists at runtime
+            await callRef.current?.stopRecording?.();
+          } catch {}
+        };
+        onReady?.({ startRecording, stopRecording });
+      }
     }
 
     join();
     return () => {
       isCancelled = true;
       if (call) call.destroy();
+      callRef.current = null;
     };
   }, [roomUrl]);
 
