@@ -1,21 +1,43 @@
+
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
+import InterviewControls from "@/components/InterviewControls";
 import TranscriptBox from "@/components/TranscriptBox";
 import StatusBar from "@/components/StatusBar";
-import InterviewControls from "@/components/InterviewControls";
 import { useInterviewState } from "@/lib/hooks/useInterviewState";
 
 const VideoCall = dynamic(() => import("@/components/VideoCall"), { ssr: false });
 
 type Phase = "idle" | "speaking" | "listening" | "evaluating" | "wrap_up" | "completed";
 
+interface ScoringResult {
+  overallScore: number;
+  categoryScores: {
+    communication: number;
+    salesKnowledge: number;
+    problemSolving: number;
+    professionalism: number;
+  };
+  questionScores: Array<{
+    questionId: string;
+    question: string;
+    response: string;
+    score: number;
+    feedback: string;
+  }>;
+  summary: string;
+  recommendations: string[];
+  decision: "hire" | "maybe" | "no_hire";
+}
+
 export default function InterviewPage() {
   const [roomUrl, setRoomUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
 
+  // Import from your custom hook
   const {
     currentQuestion,
     currentIndex,
@@ -41,8 +63,17 @@ export default function InterviewPage() {
   const runGuardRef = useRef(false);
   const recordingApiRef = useRef<{ startRecording: () => Promise<void>; stopRecording: () => Promise<void> } | null>(null);
   const fullTranscriptRef = useRef<string>("");
-  const [scoring, setScoring] = useState<any>(null);
+  const [scoring, setScoring] = useState<ScoringResult | null>(null);
+  const [scoringLoading, setScoringLoading] = useState(false);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Track all Q&A pairs for scoring
+  const interviewDataRef = useRef<Array<{
+    questionId: string;
+    question: string;
+    response: string;
+    followUps?: Array<{ question: string; response: string }>;
+  }>>([]);
 
   // Promise resolvers for async flow control
   const transcriptResolverRef = useRef<((val: string) => void) | null>(null);
@@ -68,7 +99,7 @@ export default function InterviewPage() {
     createRoom();
   }, [createRoom]);
 
-  /** ---- Improved TTS with better error handling ---- */
+  /** ---- TTS with better error handling ---- */
   const speak = useCallback((text: string): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
       try {
@@ -78,16 +109,13 @@ export default function InterviewPage() {
         }
 
         const synth = window.speechSynthesis;
-
-        // Cancel any ongoing speech
         synth.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.9; // Slightly slower for clarity
+        utterance.rate = 0.9;
         utterance.pitch = 1;
         utterance.volume = 1;
 
-        // Guard against double resolve/reject
         let settled = false;
         const resolveOnce = () => {
           if (!settled) {
@@ -103,16 +131,12 @@ export default function InterviewPage() {
             reject(err);
           }
         };
-        // Store resolver for external timeout cleanup
+
         ttsResolverRef.current = resolveOnce;
 
-        utterance.onend = () => {
-          resolveOnce();
-        };
-
+        utterance.onend = () => resolveOnce();
         utterance.onerror = (event) => {
           const errName = String((event as any)?.error || "unknown");
-          // Treat user/cancel interruptions as non-fatal and continue
           if (errName === "interrupted" || errName === "canceled" || errName === "service-not-allowed") {
             resolveOnce();
             return;
@@ -120,21 +144,15 @@ export default function InterviewPage() {
           rejectOnce(new Error(`TTS error: ${errName}`));
         };
 
-        // Ensure voices are loaded
         if (synth.getVoices().length === 0) {
-          synth.onvoiceschanged = () => {
-            synth.speak(utterance);
-          };
+          synth.onvoiceschanged = () => synth.speak(utterance);
         } else {
           synth.speak(utterance);
         }
 
-        // Timeout fallback to avoid stuck TTS
         setTimeout(() => {
-          if (!settled && ttsResolverRef.current) {
-            resolveOnce();
-          }
-        }, Math.min(12000, Math.max(2000, text.length * 60))); // bounded estimate
+          if (!settled && ttsResolverRef.current) resolveOnce();
+        }, Math.min(12000, Math.max(2000, text.length * 60)));
 
       } catch (err) {
         reject(err);
@@ -142,7 +160,7 @@ export default function InterviewPage() {
     });
   }, []);
 
-  /** ---- Improved Speech Recognition ---- */
+  /** ---- Speech Recognition ---- */
   const startRecognition = useCallback(() => {
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
@@ -150,7 +168,6 @@ export default function InterviewPage() {
       return null;
     }
 
-    // Stop any existing recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -180,26 +197,22 @@ export default function InterviewPage() {
         }
       }
 
-      // Update live transcript with final + interim
       setLiveTranscript(finalTranscript + interimTranscript);
 
-      // Reset silence timer on any speech activity
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
 
-      // Start new silence timer
       silenceTimerRef.current = setTimeout(() => {
         if (phase === "listening" && isRunningRef.current && !isPausedRef.current) {
           submitTranscript(transcriptRef.current.trim());
         }
-      }, 3000); // 3 seconds of silence
+      }, 3000);
     };
 
     recognition.onerror = (event: any) => {
       const errName = String(event?.error || "");
       console.warn("Speech recognition error:", errName);
-      // Ignore benign programmatic stops and no-speech blips
       if (errName && errName !== "no-speech" && errName !== "aborted") {
         setError(`Speech recognition error: ${errName}`);
       }
@@ -240,7 +253,6 @@ export default function InterviewPage() {
     setListening(false);
   }, []);
 
-  /** ---- Transcript handling ---- */
   const waitForTranscript = useCallback(() => {
     return new Promise<string>((resolve) => {
       transcriptResolverRef.current = resolve;
@@ -294,31 +306,33 @@ export default function InterviewPage() {
   /** ---- Main interview loop ---- */
   const runInterviewLoop = useCallback(async () => {
     if (!currentQuestion || !isRunningRef.current) return;
-    if (runGuardRef.current) return; // prevent re-entrancy
+    if (runGuardRef.current) return;
     runGuardRef.current = true;
 
     try {
-      // Reset transcript for new question
       transcriptRef.current = "";
       setLiveTranscript("");
 
-      // Add question to full transcript
+      // Track current Q&A
+      const currentQA = {
+        questionId: currentQuestion.id,
+        question: currentQuestion.question,
+        response: "",
+        followUps: [] as Array<{ question: string; response: string }>
+      };
+
       fullTranscriptRef.current += `\n\nQ${currentIndex + 1}: ${currentQuestion.question}\n`;
 
-      // AI speaks the question
       setPhase("speaking");
       await speak(currentQuestion.question);
 
-      if (!isRunningRef.current) return; // Check if stopped during speaking
+      if (!isRunningRef.current) return;
 
-      // Listen for candidate response
       setPhase("listening");
-      // Ensure any previous recognition is fully stopped before starting
       stopRecognition();
       const recognition = startRecognition();
       if (!recognition) return;
 
-      // Wait for transcript or timeout
       const maxResponseTime = (currentQuestion.maxResponseTime || 120) * 1000;
       const transcriptPromise = waitForTranscript();
       const timeoutPromise = new Promise<string>((resolve) => {
@@ -328,36 +342,35 @@ export default function InterviewPage() {
       const transcript = await Promise.race([transcriptPromise, timeoutPromise]);
 
       if (!transcript.trim()) {
-        // Gracefully move on without speaking again to avoid TTS overlap
+        // Store empty response
+        currentQA.response = "[No response provided]";
+        interviewDataRef.current.push(currentQA);
         nextQuestion();
         return;
       }
 
-      // Record the response
+      // Record main response
+      currentQA.response = transcript;
       recordResponse(transcript);
       fullTranscriptRef.current += `A: ${transcript}\n`;
 
       if (!isRunningRef.current) return;
 
-      // Evaluate response with LLM
       setPhase("evaluating");
       const decision = await askLLM(transcript);
 
       if (!isRunningRef.current) return;
 
       if (decision.action === "follow_up") {
-        // Ask follow-up question
         setPhase("speaking");
         await speak(decision.message);
 
         if (!isRunningRef.current) return;
 
-        // Listen for follow-up response
         setPhase("listening");
         transcriptRef.current = "";
         setLiveTranscript("");
 
-        // Ensure previous recognition is stopped
         stopRecognition();
         const followUpRecognition = startRecognition();
         if (!followUpRecognition) return;
@@ -365,25 +378,28 @@ export default function InterviewPage() {
         const followUpTranscript = await waitForTranscript();
 
         if (followUpTranscript.trim()) {
+          currentQA.followUps?.push({
+            question: decision.message,
+            response: followUpTranscript
+          });
           recordResponse(followUpTranscript);
           fullTranscriptRef.current += `Follow-up: ${decision.message}\nA: ${followUpTranscript}\n`;
         }
 
-        // Evaluate follow-up and move on
         const followUpDecision = await askLLM(followUpTranscript);
         await speak(followUpDecision.message);
-
       } else {
-        // Acknowledge response
         await speak(decision.message);
       }
 
+      // Store the Q&A data
+      interviewDataRef.current.push(currentQA);
+
       if (!isRunningRef.current) return;
 
-      // Move to next question or wrap up
       if (decision.action === "wrap_up" || isLastQuestion) {
         setPhase("wrap_up");
-        await speak("Thank you for your time. The interview is now complete.");
+        await speak("Thank you for your time. Let me prepare your interview report...");
         await endInterview();
         return;
       } else {
@@ -410,10 +426,8 @@ export default function InterviewPage() {
     nextQuestion
   ]);
 
-  /** ---- Effect to run interview loop when question changes ---- */
   useEffect(() => {
     if (isRunningRef.current && currentQuestion && phase !== "wrap_up" && phase !== "completed") {
-      // Small delay to ensure state is settled
       const timer = setTimeout(runInterviewLoop, 500);
       return () => clearTimeout(timer);
     }
@@ -426,18 +440,16 @@ export default function InterviewPage() {
     try {
       setError("");
       isRunningRef.current = true;
+      interviewDataRef.current = []; // Reset interview data
 
-      // Start recording
       if (recordingApiRef.current) {
         await recordingApiRef.current.startRecording();
       }
 
-      // Initialize full transcript
       fullTranscriptRef.current = "AI INTERVIEW TRANSCRIPT\n" +
         `Started at: ${new Date().toISOString()}\n` +
         "==================================================";
 
-      // Start the interview loop
       await runInterviewLoop();
 
     } catch (error) {
@@ -450,12 +462,10 @@ export default function InterviewPage() {
     isRunningRef.current = false;
     stopRecognition();
 
-    // Cancel any ongoing TTS
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
-    // Stop recording
     if (recordingApiRef.current) {
       try {
         await recordingApiRef.current.stopRecording();
@@ -501,15 +511,21 @@ export default function InterviewPage() {
 
   const handleNext = useCallback(() => {
     if (isRunningRef.current) {
-      // Submit current transcript and move to next question
       const currentTranscript = transcriptRef.current || liveTranscript || "";
       if (currentTranscript.trim()) {
         recordResponse(currentTranscript);
         fullTranscriptRef.current += `A: ${currentTranscript}\n`;
+
+        // Store Q&A for current question
+        interviewDataRef.current.push({
+          questionId: currentQuestion?.id || "",
+          question: currentQuestion?.question || "",
+          response: currentTranscript
+        });
       }
       nextQuestion();
     }
-  }, [liveTranscript, nextQuestion, recordResponse]);
+  }, [liveTranscript, nextQuestion, recordResponse, currentQuestion]);
 
   const handleManualSubmit = useCallback(() => {
     const finalText = transcriptRef.current || liveTranscript || "";
@@ -518,27 +534,26 @@ export default function InterviewPage() {
     }
   }, [liveTranscript, submitTranscript]);
 
-  /** ---- End interview ---- */
+  /** ---- End interview and generate score ---- */
   const endInterview = useCallback(async () => {
     try {
       setPhase("completed");
       isRunningRef.current = false;
+      setScoringLoading(true);
 
-      // Stop recording
       if (recordingApiRef.current) {
         await recordingApiRef.current.stopRecording();
       }
 
-      // Add completion timestamp
       fullTranscriptRef.current += `\n\nInterview completed at: ${new Date().toISOString()}`;
 
-      // Get scoring
+      // Call scoring API with proper data format
       const res = await fetch("/api/score", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           transcript: fullTranscriptRef.current,
-          responses: responses
+          responses: interviewDataRef.current // Use the tracked Q&A data
         }),
       });
 
@@ -546,15 +561,25 @@ export default function InterviewPage() {
         const data = await res.json();
         setScoring(data);
       } else {
-        console.error("Scoring failed:", await res.text());
+        const errorText = await res.text();
+        console.error("Scoring failed:", errorText);
+        setError("Failed to generate score. Please try again.");
       }
 
     } catch (error) {
       console.error("End interview error:", error);
+      setError("Failed to complete interview scoring");
+    } finally {
+      setScoringLoading(false);
     }
-  }, [responses]);
+  }, []);
 
-  /** ---- Cleanup on unmount ---- */
+  const closeScoreModal = useCallback(() => {
+    setScoring(null);
+    // Optionally reset the interview state
+    setPhase("idle");
+  }, []);
+
   useEffect(() => {
     return () => {
       stopRecognition();
@@ -569,12 +594,11 @@ export default function InterviewPage() {
 
   /** ---- Render ---- */
   if (loading) return <div className="p-6">Creating interview room...</div>;
-  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
+  if (error && !roomUrl) return <div className="p-6 text-red-600">Error: {error}</div>;
   if (!roomUrl) return <div className="p-6">Failed to create room.</div>;
 
   return (
     <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 min-h-screen">
-      {/* Background decoration */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="top-0 left-1/4 absolute bg-blue-500/5 blur-3xl rounded-full w-96 h-96"></div>
         <div className="right-1/4 bottom-0 absolute bg-purple-500/5 blur-3xl rounded-full w-96 h-96"></div>
@@ -594,7 +618,6 @@ export default function InterviewPage() {
         />
 
         <div className="gap-6 grid lg:grid-cols-3 mt-6">
-          {/* Main content area */}
           <div className="space-y-6 lg:col-span-2">
             {/* Question Card */}
             <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 shadow-2xl backdrop-blur-xl p-8 border border-slate-700/50 rounded-2xl">
@@ -611,7 +634,6 @@ export default function InterviewPage() {
                   </div>
                 </div>
 
-                {/* Progress indicator */}
                 <div className="flex gap-1">
                   {[...Array(totalQuestions)].map((_, i) => (
                     <div
@@ -629,7 +651,7 @@ export default function InterviewPage() {
 
               <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
                 <h2 className="mb-2 font-semibold text-white text-2xl leading-relaxed">
-                  {currentQuestion?.question}
+                  {currentQuestion?.question || "Preparing next question..."}
                 </h2>
                 <p className="mt-4 text-gray-400 text-sm">
                   Take your time to provide a thoughtful response
@@ -641,7 +663,6 @@ export default function InterviewPage() {
             <TranscriptBox text={liveTranscript} listening={listening} />
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
             {/* Recording Status */}
             <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-xl p-6 border border-slate-700/50 rounded-2xl">
@@ -653,7 +674,6 @@ export default function InterviewPage() {
                 </span>
               </div>
 
-              {/* Audio visualization placeholder */}
               <div className="flex justify-center items-center gap-1 h-16">
                 {[...Array(8)].map((_, i) => (
                   <div
@@ -706,64 +726,144 @@ export default function InterviewPage() {
           </div>
         </div>
 
-        {/* Results Modal */}
-        {scoring && (
-          <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 shadow-2xl p-8 border border-slate-700/50 rounded-3xl w-full max-w-2xl">
-              <div className="mb-8 text-center">
-                <div className="inline-flex justify-center items-center bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg mb-4 rounded-2xl w-16 h-16">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h2 className="mb-2 font-bold text-white text-3xl">Interview Complete!</h2>
-                <p className="text-gray-400">Here are your results</p>
-              </div>
+        {/* Error display */}
+        {error && (
+          <div className="bg-red-900/20 backdrop-blur-xl mt-4 p-4 border border-red-700/30 rounded-xl">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
 
-              <div className="space-y-6">
-                {scoring.overallScore && (
-                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
-                    <p className="mb-2 text-gray-400 text-sm">Overall Score</p>
-                    <div className="flex items-center gap-4">
-                      <span className="bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 font-bold text-transparent text-4xl">
-                        {scoring.overallScore}/10
-                      </span>
-                      <div className="flex-1 bg-slate-700/50 rounded-full h-3 overflow-hidden">
-                        <div
-                          className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full h-full transition-all duration-1000"
-                          style={{ width: `${(scoring.overallScore / 10) * 100}%` }}
-                        />
+        {/* Results Modal */}
+        {(scoring || scoringLoading) && (
+          <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 shadow-2xl p-8 border border-slate-700/50 rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+              {scoringLoading ? (
+                <div className="flex flex-col justify-center items-center py-12">
+                  <div className="border-4 border-t-blue-500 border-blue-500/30 rounded-full w-16 h-16 animate-spin"></div>
+                  <p className="mt-4 text-gray-400">Analyzing your interview performance...</p>
+                </div>
+              ) : scoring ? (
+                <>
+                  <div className="mb-8 text-center">
+                    <div className="inline-flex justify-center items-center bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg mb-4 rounded-2xl w-16 h-16">
+                      <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <h2 className="mb-2 font-bold text-white text-3xl">Interview Complete!</h2>
+                    <p className="text-gray-400">Here&apos;s your detailed performance report</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    {/* Overall Score */}
+                    <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                      <p className="mb-3 text-gray-400 text-sm">Overall Performance</p>
+                      <div className="flex items-center gap-4">
+                        <span className="bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 font-bold text-transparent text-5xl">
+                          {scoring.overallScore?.toFixed(1) || "0.0"}/10
+                        </span>
+                        <div className="flex-1">
+                          <div className="bg-slate-700/50 rounded-full h-4 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full h-full transition-all duration-1000"
+                              style={{ width: `${((scoring.overallScore || 0) / 10) * 100}%` }}
+                            />
+                          </div>
+                          <p className="mt-2 text-gray-400 text-xs">
+                            Decision:
+                            <span className={`ml-2 font-semibold ${scoring.decision === 'hire' ? 'text-green-400' :
+                              scoring.decision === 'maybe' ? 'text-yellow-400' :
+                                'text-red-400'
+                              }`}>
+                              {scoring.decision === 'hire' ? 'RECOMMENDED FOR HIRE' :
+                                scoring.decision === 'maybe' ? 'POTENTIAL CANDIDATE' :
+                                  'NOT RECOMMENDED'}
+                            </span>
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
 
-                {scoring.summary && (
-                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
-                    <p className="mb-3 text-gray-400 text-sm">Summary</p>
-                    <p className="text-gray-200 leading-relaxed">{scoring.summary}</p>
-                  </div>
-                )}
+                    {/* Category Scores */}
+                    {scoring.categoryScores && (
+                      <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                        <p className="mb-4 text-gray-400 text-sm">Performance by Category</p>
+                        <div className="space-y-3">
+                          {Object.entries(scoring.categoryScores).map(([category, score]) => (
+                            <div key={category} className="flex items-center gap-3">
+                              <span className="w-32 text-gray-300 text-sm capitalize">
+                                {category.replace(/([A-Z])/g, ' $1').trim()}
+                              </span>
+                              <div className="flex-1 bg-slate-700/50 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-700 ${score >= 7 ? 'bg-green-500' :
+                                    score >= 5
+                                      ? 'bg-yellow-500' :
+                                      'bg-red-500'
+                                    }`}
+                                  style={{ width: `${(score / 10) * 100}%` }}
+                                />
+                              </div>
+                              <span className="w-8 text-gray-300 text-sm text-right">{score.toFixed(1)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                {scoring.recommendations && (
-                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
-                    <p className="mb-3 text-gray-400 text-sm">Recommendations</p>
-                    <p className="text-gray-200 leading-relaxed">{scoring.recommendations}</p>
-                  </div>
-                )}
-              </div>
+                    {/* Summary */}
+                    {scoring.summary && (
+                      <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                        <p className="mb-3 text-gray-400 text-sm">Overall Summary</p>
+                        <p className="text-gray-200 leading-relaxed">{scoring.summary}</p>
+                      </div>
+                    )}
 
-              <div className="flex gap-4 mt-8">
-                <button className="flex-1 bg-gradient-to-r from-blue-600 hover:from-blue-500 to-cyan-600 hover:to-cyan-500 shadow-lg px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300">
-                  View Detailed Report
-                </button>
-                <button className="bg-slate-700/50 hover:bg-slate-700/70 px-6 py-3 border border-slate-600/50 rounded-xl font-semibold text-gray-300 transition-all duration-300">
+                    {/* Recommendations */}
+                    {scoring.recommendations && scoring.recommendations.length > 0 && (
+                      <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                        <p className="mb-3 text-gray-400 text-sm">Recommendations for Improvement</p>
+                        <ul className="space-y-2 pl-5 text-gray-200 leading-relaxed list-disc">
+                          {scoring.recommendations.map((rec, index) => (
+                            <li key={index}>{rec}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Question-by-Question Feedback */}
+                    {scoring.questionScores && scoring.questionScores.length > 0 && (
+                      <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                        <p className="mb-4 text-gray-400 text-sm">Question-by-Question Feedback</p>
+                        <div className="space-y-6">
+                          {scoring.questionScores.map((qs, index) => (
+                            <div key={index} className="bg-slate-900/50 p-4 border border-slate-700/50 rounded-lg">
+                              <p className="font-semibold text-gray-300">Question {index + 1}</p>
+                              <p className="mt-2 text-gray-200">{qs.feedback}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="text-red-400 text-center">Failed to load scoring results.</p>
+              )}
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={closeScoreModal}
+                  className="bg-slate-700/50 hover:bg-slate-700/70 px-6 py-3 border border-slate-600/50 rounded-xl font-semibold text-gray-300 transition-all duration-300"
+                >
                   Close
                 </button>
+
               </div>
             </div>
           </div>
-        )}
+        )
+        }
+
       </div>
     </div>
   );
