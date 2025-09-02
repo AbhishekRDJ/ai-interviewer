@@ -573,13 +573,19 @@ export default function InterviewPage() {
   if (!roomUrl) return <div className="p-6">Failed to create room.</div>;
 
   return (
-    <div className="gap-4 grid mx-auto p-4 max-w-4xl">
+    <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 min-h-screen">
+      {/* Background decoration */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="top-0 left-1/4 absolute bg-blue-500/5 blur-3xl rounded-full w-96 h-96"></div>
+        <div className="right-1/4 bottom-0 absolute bg-purple-500/5 blur-3xl rounded-full w-96 h-96"></div>
+      </div>
+
       <VideoCall
         roomUrl={roomUrl}
         onReady={(api) => (recordingApiRef.current = api)}
       />
 
-      <div className="gap-3 grid">
+      <div className="z-10 relative mx-auto px-4 py-6 container">
         <StatusBar
           phase={phase}
           secondsRemaining={secondsRemaining}
@@ -587,56 +593,177 @@ export default function InterviewPage() {
           totalQuestions={totalQuestions}
         />
 
-        <div className="bg-blue-50 dark:bg-blue-950 p-3 border rounded">
-          <div className="mb-2 font-medium text-blue-800 dark:text-blue-200 text-sm">
-            Question {currentIndex + 1} of {totalQuestions}:
+        <div className="gap-6 grid lg:grid-cols-3 mt-6">
+          {/* Main content area */}
+          <div className="space-y-6 lg:col-span-2">
+            {/* Question Card */}
+            <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 shadow-2xl backdrop-blur-xl p-8 border border-slate-700/50 rounded-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex justify-center items-center bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg rounded-xl w-10 h-10 font-bold text-white">
+                    {currentIndex + 1}
+                  </div>
+                  <div>
+                    <p className="text-gray-400 text-sm">Current Question</p>
+                    <p className="text-gray-500 text-xs">
+                      {currentIndex + 1} of {totalQuestions}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Progress indicator */}
+                <div className="flex gap-1">
+                  {[...Array(totalQuestions)].map((_, i) => (
+                    <div
+                      key={i}
+                      className={`h-2 w-8 rounded-full transition-all duration-300 ${i < currentIndex
+                        ? 'bg-green-500'
+                        : i === currentIndex
+                          ? 'bg-blue-500 animate-pulse'
+                          : 'bg-slate-700'
+                        }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                <h2 className="mb-2 font-semibold text-white text-2xl leading-relaxed">
+                  {currentQuestion?.question}
+                </h2>
+                <p className="mt-4 text-gray-400 text-sm">
+                  Take your time to provide a thoughtful response
+                </p>
+              </div>
+            </div>
+
+            {/* Transcript Box */}
+            <TranscriptBox text={liveTranscript} listening={listening} />
           </div>
-          <div className="text-blue-900 dark:text-blue-100">
-            {currentQuestion?.question}
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Recording Status */}
+            <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-xl p-6 border border-slate-700/50 rounded-2xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-3 h-3 rounded-full ${phase === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-gray-500'
+                  }`}></div>
+                <span className="font-medium text-gray-300 text-sm">
+                  {phase === 'listening' ? 'Recording Active' : 'Recording Paused'}
+                </span>
+              </div>
+
+              {/* Audio visualization placeholder */}
+              <div className="flex justify-center items-center gap-1 h-16">
+                {[...Array(8)].map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-1 bg-gradient-to-t from-blue-500 to-cyan-400 rounded-full transition-all duration-150 ${listening ? 'animate-pulse' : ''
+                      }`}
+                    style={{
+                      height: listening ? `${Math.random() * 100}%` : '20%',
+                      animationDelay: `${i * 0.1}s`
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Controls */}
+            <InterviewControls
+              onStart={handleStart}
+              onStop={handleStop}
+              onPauseResume={handlePauseResume}
+              onRepeat={handleRepeat}
+              onNext={handleNext}
+              onAnswer={() => startRecognition()}
+              onSubmit={handleManualSubmit}
+              disabled={phase === "speaking" || phase === "evaluating"}
+              isPaused={isPausedRef.current}
+              isListening={listening}
+              isRunning={isRunningRef.current}
+              phase={phase}
+            />
+
+            {/* Tips Card */}
+            <div className="bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-xl p-6 border border-blue-700/30 rounded-2xl">
+              <h3 className="mb-3 font-semibold text-blue-300 text-sm">Interview Tips</h3>
+              <ul className="space-y-2 text-gray-400 text-xs">
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>Speak clearly and at a moderate pace</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>Take a moment to think before answering</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>Use specific examples when possible</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
-        <TranscriptBox text={liveTranscript} listening={listening} />
-
+        {/* Results Modal */}
         {scoring && (
-          <div className="bg-green-50 dark:bg-green-950 p-4 border rounded">
-            <div className="mb-3 font-semibold text-green-800 dark:text-green-200">
-              Interview Results
-            </div>
-            <div className="space-y-2 text-sm">
-              {scoring.overallScore && (
-                <div>
-                  <span className="font-medium">Overall Score:</span> {scoring.overallScore}/10
+          <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 shadow-2xl p-8 border border-slate-700/50 rounded-3xl w-full max-w-2xl">
+              <div className="mb-8 text-center">
+                <div className="inline-flex justify-center items-center bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg mb-4 rounded-2xl w-16 h-16">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 </div>
-              )}
-              {scoring.summary && (
-                <div>
-                  <span className="font-medium">Summary:</span> {scoring.summary}
-                </div>
-              )}
-              {scoring.recommendations && (
-                <div>
-                  <span className="font-medium">Recommendations:</span> {scoring.recommendations}
-                </div>
-              )}
+                <h2 className="mb-2 font-bold text-white text-3xl">Interview Complete!</h2>
+                <p className="text-gray-400">Here are your results</p>
+              </div>
+
+              <div className="space-y-6">
+                {scoring.overallScore && (
+                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                    <p className="mb-2 text-gray-400 text-sm">Overall Score</p>
+                    <div className="flex items-center gap-4">
+                      <span className="bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 font-bold text-transparent text-4xl">
+                        {scoring.overallScore}/10
+                      </span>
+                      <div className="flex-1 bg-slate-700/50 rounded-full h-3 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full h-full transition-all duration-1000"
+                          style={{ width: `${(scoring.overallScore / 10) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {scoring.summary && (
+                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                    <p className="mb-3 text-gray-400 text-sm">Summary</p>
+                    <p className="text-gray-200 leading-relaxed">{scoring.summary}</p>
+                  </div>
+                )}
+
+                {scoring.recommendations && (
+                  <div className="bg-slate-800/50 p-6 border border-slate-700/30 rounded-xl">
+                    <p className="mb-3 text-gray-400 text-sm">Recommendations</p>
+                    <p className="text-gray-200 leading-relaxed">{scoring.recommendations}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button className="flex-1 bg-gradient-to-r from-blue-600 hover:from-blue-500 to-cyan-600 hover:to-cyan-500 shadow-lg px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300">
+                  View Detailed Report
+                </button>
+                <button className="bg-slate-700/50 hover:bg-slate-700/70 px-6 py-3 border border-slate-600/50 rounded-xl font-semibold text-gray-300 transition-all duration-300">
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
-
-        <InterviewControls
-          onStart={handleStart}
-          onStop={handleStop}
-          onPauseResume={handlePauseResume}
-          onRepeat={handleRepeat}
-          onNext={handleNext}
-          onAnswer={() => startRecognition()}
-          onSubmit={handleManualSubmit}
-          disabled={phase === "speaking" || phase === "evaluating"}
-          isPaused={isPausedRef.current}
-          isListening={listening}
-          isRunning={isRunningRef.current}
-          phase={phase}
-        />
       </div>
     </div>
   );

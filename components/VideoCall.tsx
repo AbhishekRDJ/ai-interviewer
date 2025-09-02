@@ -35,13 +35,13 @@ export default function VideoCall({ roomUrl, onReady }: Props) {
           try {
             // @ts-ignore - startRecording exists at runtime
             await callRef.current?.startRecording?.({});
-          } catch {}
+          } catch { }
         };
         const stopRecording = async () => {
           try {
             // @ts-ignore - stopRecording exists at runtime
             await callRef.current?.stopRecording?.();
-          } catch {}
+          } catch { }
         };
         onReady?.({ startRecording, stopRecording });
       }
@@ -58,7 +58,7 @@ export default function VideoCall({ roomUrl, onReady }: Props) {
   return (
     <div className="flex flex-col gap-3">
       <div ref={containerRef} />
-      <div className="text-sm text-gray-600">{joined ? "Connected" : "Connecting…"}</div>
+      <div className="text-gray-600 text-sm">{joined ? "Connected" : "Connecting…"}</div>
     </div>
   );
 }
