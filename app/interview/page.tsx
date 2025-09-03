@@ -472,9 +472,10 @@ export default function InterviewPage() {
       } catch { }
     }
 
-    setPhase("idle");
+    setPhase("wrap_up");
     setLiveTranscript("");
     transcriptRef.current = "";
+    await endInterview();
   }, [stopRecognition]);
 
   const handlePauseResume = useCallback(() => {

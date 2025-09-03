@@ -1,7 +1,35 @@
 "use client";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 
+// eslint-disable-next-line @next/next/no-async-client-component
 export default function Home() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") return <p>Loading...</p>;
+  if (!session) {
+    return (
+      <div className="flex flex-col justify-center items-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 px-4 min-h-screen">
+        <h1 className="mb-6 font-bold text-white text-3xl">Welcome to AI Interview</h1>
+        <p className="mb-6 text-gray-400">Please log in or sign up to continue</p>
+
+        <div className="flex gap-4">
+          <Link
+            href="/login"
+            className="bg-blue-600 hover:bg-blue-500 shadow-md px-6 py-3 rounded-lg font-semibold text-white transition-all"
+          >
+            Login
+          </Link>
+          <Link
+            href="/signup"
+            className="bg-cyan-600 hover:bg-cyan-500 shadow-md px-6 py-3 rounded-lg font-semibold text-white transition-all"
+          >
+            Signup
+          </Link>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="relative flex justify-center items-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 px-4 min-h-screen overflow-hidden">
       {/* Animated background elements */}
