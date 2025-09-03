@@ -8,6 +8,7 @@ import TranscriptBox from "@/components/TranscriptBox";
 import StatusBar from "@/components/StatusBar";
 import { useInterviewState } from "@/lib/hooks/useInterviewState";
 
+
 const VideoCall = dynamic(() => import("@/components/VideoCall"), { ssr: false });
 
 type Phase = "idle" | "speaking" | "listening" | "evaluating" | "wrap_up" | "completed";
@@ -33,6 +34,8 @@ interface ScoringResult {
 }
 
 export default function InterviewPage() {
+  const sessionIdRef = useRef<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [roomUrl, setRoomUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
@@ -66,7 +69,51 @@ export default function InterviewPage() {
   const [scoring, setScoring] = useState<ScoringResult | null>(null);
   const [scoringLoading, setScoringLoading] = useState(false);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const createSession = useCallback(async (payload: { roomUrl?: string; transcript?: string; responses?: any[] }) => {
+    const res = await fetch("/api/interviews", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    // store both state and ref
+    sessionIdRef.current = data.id as string;
+    setSessionId(sessionIdRef.current);
+    return data.id as string;
+  }, []);
 
+  // append response to server (stable)
+  const appendResponseToSession = useCallback(async (id: string, responseObj: any) => {
+    const res = await fetch(`/api/interviews/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ appendResponse: responseObj }),
+    });
+    if (!res.ok) {
+      console.warn("Failed to append response to session:", await res.text());
+    }
+    return res.ok;
+  }, []);
+
+  // finalize and ask server to score (stable)
+  const finalizeAndScoreSession = useCallback(async (id: string, finalTranscript?: string) => {
+    // finalize (set completedAt etc.)
+    await fetch(`/api/interviews/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ finalize: true, transcript: finalTranscript }),
+    });
+
+    // request server to compute score
+    const res = await fetch(`/api/interviews/${id}/score`, { method: "POST" });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Scoring failed");
+    }
+    const scoringResult = await res.json();
+    return scoringResult;
+  }, []);
   // Track all Q&A pairs for scoring
   const interviewDataRef = useRef<Array<{
     questionId: string;
@@ -345,6 +392,12 @@ export default function InterviewPage() {
         // Store empty response
         currentQA.response = "[No response provided]";
         interviewDataRef.current.push(currentQA);
+        const sid = sessionIdRef.current;
+        if (sid) {
+          // non-blocking append (best-effort)
+          appendResponseToSession(sid, currentQA).catch((e) => console.warn("append failed", e));
+        }
+
         nextQuestion();
         return;
       }
@@ -394,6 +447,10 @@ export default function InterviewPage() {
 
       // Store the Q&A data
       interviewDataRef.current.push(currentQA);
+      if (sessionId) {
+        // non-blocking append (best-effort)
+        appendResponseToSession(sessionId, currentQA).catch((e) => console.warn("append failed", e));
+      }
 
       if (!isRunningRef.current) return;
 
@@ -446,9 +503,11 @@ export default function InterviewPage() {
         await recordingApiRef.current.startRecording();
       }
 
-      fullTranscriptRef.current = "AI INTERVIEW TRANSCRIPT\n" +
-        `Started at: ${new Date().toISOString()}\n` +
-        "==================================================";
+      fullTranscriptRef.current = "AI INTERVIEW TRANSCRIPT\n" + `Started at: ${new Date().toISOString()}\n` + "==================================================";
+
+      // create session in mongo to start tracking
+      const id = await createSession({ roomUrl, transcript: fullTranscriptRef.current, responses: [] });
+      setSessionId(id);
 
       await runInterviewLoop();
 
@@ -456,7 +515,8 @@ export default function InterviewPage() {
       setError(error instanceof Error ? error.message : "Failed to start interview");
       isRunningRef.current = false;
     }
-  }, [runInterviewLoop]);
+  }, [runInterviewLoop, roomUrl]);
+
 
   const handleStop = useCallback(async () => {
     isRunningRef.current = false;
@@ -518,11 +578,16 @@ export default function InterviewPage() {
         fullTranscriptRef.current += `A: ${currentTranscript}\n`;
 
         // Store Q&A for current question
-        interviewDataRef.current.push({
+        const saved = {
           questionId: currentQuestion?.id || "",
           question: currentQuestion?.question || "",
           response: currentTranscript
-        });
+        };
+        interviewDataRef.current.push(saved);
+        const sid = sessionIdRef.current;
+        if (sid) {
+          appendResponseToSession(sid, saved).catch(e => console.warn("append failed", e));
+        }
       }
       nextQuestion();
     }
@@ -548,32 +613,37 @@ export default function InterviewPage() {
 
       fullTranscriptRef.current += `\n\nInterview completed at: ${new Date().toISOString()}`;
 
-      // Call scoring API with proper data format
-      const res = await fetch("/api/score", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          transcript: fullTranscriptRef.current,
-          responses: interviewDataRef.current // Use the tracked Q&A data
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setScoring(data);
+      const sid = sessionIdRef.current;
+      if (sid) {
+        // finalize & server computes score based on stored data
+        const scoringResult = await finalizeAndScoreSession(sid, fullTranscriptRef.current);
+        setScoring(scoringResult);
       } else {
-        const errorText = await res.text();
-        console.error("Scoring failed:", errorText);
-        setError("Failed to generate score. Please try again.");
-      }
+        // fallback: call the old /api/score directly with current transcript & responses
+        const res = await fetch("/api/score", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            transcript: fullTranscriptRef.current,
+            responses: interviewDataRef.current,
+          }),
+        });
 
+        if (res.ok) {
+          setScoring(await res.json());
+        } else {
+          setError("Failed to generate score. Please try again.");
+        }
+      }
     } catch (error) {
       console.error("End interview error:", error);
       setError("Failed to complete interview scoring");
     } finally {
       setScoringLoading(false);
     }
-  }, []);
+  }, [finalizeAndScoreSession]);
+
+
 
   const closeScoreModal = useCallback(() => {
     setScoring(null);
