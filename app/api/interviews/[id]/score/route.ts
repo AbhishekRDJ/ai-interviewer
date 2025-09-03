@@ -117,11 +117,11 @@ Questions:
 {questions}
 `;
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         await connectDB();
 
-        const sessionId = params.id;
+        const { id: sessionId } = await params;
         if (!sessionId) {
             return new NextResponse(JSON.stringify({ error: "Missing session id" }), { status: 400 });
         }

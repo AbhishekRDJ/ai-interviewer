@@ -649,6 +649,17 @@ export default function InterviewPage() {
     setScoring(null);
     // Optionally reset the interview state
     setPhase("idle");
+    isRunningRef.current = false;
+    isPausedRef.current = false;
+    setLiveTranscript("");
+    transcriptRef.current = "";
+    setSecondsRemaining(undefined);
+    setSessionId(null);
+    sessionIdRef.current = null;
+
+    // navigate to /home 
+    window.location.href = "/";
+
   }, []);
 
   useEffect(() => {
