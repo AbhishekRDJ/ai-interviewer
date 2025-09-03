@@ -1,17 +1,18 @@
 // app/api/interviews/[id]/score/route.ts
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongo";
+import { connectDB } from "../../../../../lib/mongo";
 import { Session } from "../../../../models/Session";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { interviewConfig } from "@/interview-config/interviewConfig";
+import { interviewConfig } from "../../../../../interview-config/interviewConfig";
+import { SessionDocument } from "../../../../../lib/types/interview";
 
 /**
  * If LLM is unavailable (429/quota/etc) we compute a simple deterministic fallback score
  * based on response lengths and presence of follow-ups. It's deliberately conservative.
  */
-function fallbackScoreFromResponses(responses: any[]) {
+function fallbackScoreFromResponses(responses: Array<{ questionId?: string; question?: string; response?: string; followUps?: unknown[] }>) {
     // Score each question by length & presence of follow-ups
-    const questionScores = responses.map((r: any) => {
+    const questionScores = responses.map((r) => {
         const text = (r.response || "").toString().trim();
         const wordCount = text ? text.split(/\s+/).length : 0;
         // base score 1..10 derived from wordCount with sensible clamping
@@ -116,23 +117,25 @@ Transcript:
 Questions:
 {questions}
 `;
-
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         await connectDB();
 
         const { id: sessionId } = await params;
         if (!sessionId) {
-            return new NextResponse(JSON.stringify({ error: "Missing session id" }), { status: 400 });
+            return new NextResponse(
+                JSON.stringify({ error: "Missing session id" }),
+                { status: 400 }
+            );
         }
 
-        const doc = await Session.findById(sessionId).lean();
+        const doc = await Session.findById(sessionId).lean() as SessionDocument | null;
         if (!doc) {
             return new NextResponse(JSON.stringify({ error: "Session not found" }), { status: 404 });
         }
 
         const transcript = (doc.transcript || "").toString();
-        const responses = doc.responses || [];
+        const responses = (doc.responses || []) as Array<{ questionId?: string; question?: string; response?: string; followUps?: unknown[] }>;
 
         if (!transcript.trim()) {
             return new NextResponse(JSON.stringify({ error: "No transcript to score" }), { status: 400 });
@@ -149,7 +152,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
 
         const questionsList = (interviewConfig?.screening?.questions || [])
-            .map((q: any) => `- ${q.question}`)
+            .map((q: { question: string }) => `- ${q.question}`)
             .join("\n");
 
         const prompt = SCORING_PROMPT.replace("{transcript}", transcript).replace("{questions}", questionsList);
@@ -164,7 +167,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             },
         });
 
-        let scoringResult: any = null;
+        let scoringResult: Record<string, unknown> | null = null;
         let rawLLMText = "";
 
         try {
@@ -175,9 +178,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             } catch (parseErr) {
                 console.error("Failed to parse LLM JSON:", parseErr, rawLLMText);
             }
-        } catch (llmErr: any) {
+        } catch (llmErr: unknown) {
             // Inspect the error and determine if it's a rate-limit / quota error
-            const errText = String(llmErr?.message || llmErr);
+            const errText = String((llmErr as Error)?.message || llmErr);
             console.error("LLM call error:", errText);
 
             // Treat quota / 429 errors specially: fall back
@@ -227,19 +230,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!scoringResult.categoryScores) {
             scoringResult.categoryScores = { communication: 5, salesKnowledge: 5, problemSolving: 5, professionalism: 5 };
         }
-        for (const k of Object.keys(scoringResult.categoryScores)) {
-            scoringResult.categoryScores[k] = Number(scoringResult.categoryScores[k] || 0);
+        for (const k of Object.keys(scoringResult.categoryScores as Record<string, unknown>)) {
+            (scoringResult.categoryScores as Record<string, unknown>)[k] = Number((scoringResult.categoryScores as Record<string, unknown>)[k] || 0);
         }
 
-        scoringResult.questionScores = (scoringResult.questionScores || []).map((q: any) => ({
+        scoringResult.questionScores = ((scoringResult.questionScores as Array<{ questionId?: string; question?: string; response?: string; score?: number }>) || []).map((q) => ({
             ...q,
             score: Number(q.score || 0),
         }));
 
         const validDecisions = ["hire", "maybe", "no_hire"];
-        if (!validDecisions.includes(scoringResult.decision)) {
-            if (scoringResult.overallScore >= 7.5) scoringResult.decision = "hire";
-            else if (scoringResult.overallScore >= 6.0) scoringResult.decision = "maybe";
+        if (!validDecisions.includes((scoringResult.decision as string))) {
+            const overallScore = scoringResult.overallScore as number;
+            if (overallScore >= 7.5) scoringResult.decision = "hire";
+            else if (overallScore >= 6.0) scoringResult.decision = "maybe";
             else scoringResult.decision = "no_hire";
         }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { interviewConfig } from "@/interview-config/interviewConfig";
+import { interviewConfig } from "../../interview-config/interviewConfig";
 
 export type ResponseRecord = {
   questionId: string;

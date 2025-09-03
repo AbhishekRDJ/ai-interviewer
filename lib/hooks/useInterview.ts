@@ -2,7 +2,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { InterviewService, InterviewPhase, InterviewState, InterviewCallbacks } from '@/lib/services/InterviewService';
+// import { InterviewService, InterviewPhase, InterviewState, InterviewCallbacks } from '@/lib/services/InterviewService';
+import { InterviewService, InterviewPhase, InterviewState, InterviewCallbacks } from '../../lib/services/InterviewService';
 import { interviewConfig } from '@/interview-config/interviewConfig';
 
 export function useInterview() {
@@ -16,10 +17,13 @@ export function useInterview() {
     const serviceRef = useRef<InterviewService | null>(null);
 
     const callbacks: InterviewCallbacks = {
-        onPhaseChange: setPhase,
-        onQuestionChange: (question, index) => {
-            setCurrentQuestion(question);
-            setCurrentIndex(index);
+        onStateChange: (state) => {
+            setPhase(state.phase);
+            setCurrentQuestion(state.currentQuestion);
+            setCurrentIndex(state.currentIndex);
+        },
+        onQuestionAsked: (question) => {
+            // Handle question being asked
         },
         onResponseRecorded: (response) => {
             // Could emit events or update additional state here

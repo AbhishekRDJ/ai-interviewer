@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -7,9 +6,6 @@ import InterviewControls from "@/components/InterviewControls";
 import TranscriptBox from "@/components/TranscriptBox";
 import StatusBar from "@/components/StatusBar";
 import { useInterviewState } from "@/lib/hooks/useInterviewState";
-
-
-const VideoCall = dynamic(() => import("@/components/VideoCall"), { ssr: false });
 
 type Phase = "idle" | "speaking" | "listening" | "evaluating" | "wrap_up" | "completed";
 
@@ -32,6 +28,14 @@ interface ScoringResult {
   recommendations: string[];
   decision: "hire" | "maybe" | "no_hire";
 }
+
+interface InterviewResponse {
+  questionId: string;
+  question: string;
+  response: string;
+}
+
+const VideoCall = dynamic(() => import("@/components/VideoCall"), { ssr: false });
 
 export default function InterviewPage() {
   const sessionIdRef = useRef<string | null>(null);
@@ -69,7 +73,7 @@ export default function InterviewPage() {
   const [scoring, setScoring] = useState<ScoringResult | null>(null);
   const [scoringLoading, setScoringLoading] = useState(false);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const createSession = useCallback(async (payload: { roomUrl?: string; transcript?: string; responses?: any[] }) => {
+  const createSession = useCallback(async (payload: { roomUrl?: string; transcript?: string; responses?: InterviewResponse[] }) => {
     const res = await fetch("/api/interviews", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -84,7 +88,7 @@ export default function InterviewPage() {
   }, []);
 
   // append response to server (stable)
-  const appendResponseToSession = useCallback(async (id: string, responseObj: any) => {
+  const appendResponseToSession = useCallback(async (id: string, responseObj: InterviewResponse) => {
     const res = await fetch(`/api/interviews/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -230,29 +234,28 @@ export default function InterviewPage() {
     let finalTranscript = "";
 
     recognition.onresult = (event: any) => {
+      const speechEvent = event; // Web Speech API event
       let interimTranscript = "";
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcript = result[0].transcript;
-
+      for (let i = speechEvent.resultIndex; i < speechEvent.results.length; i++) {
+        const result = speechEvent.results[i];
         if (result.isFinal) {
-          finalTranscript += transcript + " ";
-          transcriptRef.current = finalTranscript;
+          finalTranscript += result[0].transcript;
         } else {
-          interimTranscript += transcript;
+          interimTranscript += result[0].transcript;
         }
       }
 
-      setLiveTranscript(finalTranscript + interimTranscript);
+      setLiveTranscript(interimTranscript);
+      transcriptRef.current = finalTranscript + interimTranscript;
 
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
 
       silenceTimerRef.current = setTimeout(() => {
-        if (phase === "listening" && isRunningRef.current && !isPausedRef.current) {
-          submitTranscript(transcriptRef.current.trim());
+        if (finalTranscript.trim()) {
+          stopRecognition();
         }
       }, 3000);
     };
@@ -790,7 +793,7 @@ export default function InterviewPage() {
             {/* Tips Card */}
             <div className="bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-xl p-6 border border-blue-700/30 rounded-2xl">
               <h3 className="mb-3 font-semibold text-blue-300 text-sm">Interview Tips</h3>
-              <ul className="space-y-2 text-gray-400 text-xs">
+              <ul className="space-y-2 pl-5 text-gray-400 text-xs">
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">•</span>
                   <span>Speak clearly and at a moderate pace</span>

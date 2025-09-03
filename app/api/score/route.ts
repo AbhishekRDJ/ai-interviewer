@@ -63,7 +63,7 @@ Questions:
 
 export async function POST(req: Request) {
   try {
-    const { transcript, responses } = await req.json();
+    const { transcript } = await req.json();
 
     if (!transcript?.trim()) {
       return Response.json({ error: "No transcript provided" }, { status: 400 });
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
 
     try {
       scoringResult = JSON.parse(text);
-    } catch (e) {
+    } catch {
       console.error("JSON parse failed:", text);
     }
 

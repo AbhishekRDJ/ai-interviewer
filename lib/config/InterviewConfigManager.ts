@@ -1,5 +1,6 @@
 // lib/config/InterviewConfigManager.ts
-import { InterviewConfig, InterviewTemplate, InterviewQuestion } from '@/lib/types/interview';
+// import { InterviewConfig, InterviewTemplate, InterviewQuestion } from '@/lib/types/interview';
+import { InterviewConfig, InterviewTemplate, InterviewQuestion } from '../../lib/types/interview';
 
 export class InterviewConfigManager {
     private configs: Map<string, InterviewConfig> = new Map();

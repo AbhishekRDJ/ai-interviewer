@@ -33,13 +33,11 @@ export default function VideoCall({ roomUrl, onReady }: Props) {
         callRef.current = call;
         const startRecording = async () => {
           try {
-            // @ts-ignore - startRecording exists at runtime
             await callRef.current?.startRecording?.({});
           } catch { }
         };
         const stopRecording = async () => {
           try {
-            // @ts-ignore - stopRecording exists at runtime
             await callRef.current?.stopRecording?.();
           } catch { }
         };
@@ -62,5 +60,3 @@ export default function VideoCall({ roomUrl, onReady }: Props) {
     </div>
   );
 }
-
-

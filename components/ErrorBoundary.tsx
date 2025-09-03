@@ -68,8 +68,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
                         <h2 className="mb-4 font-bold text-white text-xl">Something went wrong</h2>
 
-                        <p className="mb-6 text-gray-400 text-sm">
-                            We encountered an unexpected error. Don't worry, your interview progress is safe.
+                        <p className="text-gray-300 mb-6">
+                            Something went wrong during your interview session. Don&apos;t worry - your progress has been saved.
                         </p>
 
                         {this.state.errorId && (

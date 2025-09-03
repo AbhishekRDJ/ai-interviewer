@@ -23,12 +23,11 @@ export async function POST(req: Request) {
         const user = await User.create({ name, email, password: hashedPassword });
 
         return NextResponse.json({ message: "User created", user }, { status: 201 });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("❌ Signup error:", error);
         return NextResponse.json(
-            { error: error.message || "Signup failed" },
+            { error: (error as Error).message || "Signup failed" },
             { status: 500 }
         );
     }
 }
-

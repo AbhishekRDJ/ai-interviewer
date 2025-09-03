@@ -1,5 +1,5 @@
 // lib/utils/errorHandler.ts
-import { InterviewError } from '@/lib/types/interview';
+import { InterviewError } from '../../lib/types/interview';
 
 export enum ErrorCode {
     // Speech Recognition Errors
@@ -65,7 +65,7 @@ export class InterviewErrorHandler {
     public static createError(
         code: ErrorCode,
         originalError?: Error | unknown,
-        context?: Record<string, any>
+        context?: Record<string, unknown>
     ): InterviewError {
         return {
             code,
@@ -119,10 +119,35 @@ export class InterviewErrorHandler {
                 'Your responses are still being processed',
                 'Contact support if you need your data recovered'
             ],
+            [ErrorCode.INTERVIEW_CONFIG_INVALID]: [
+                'Contact support for assistance',
+                'Try starting a new interview session',
+                'Check if there are any system updates available'
+            ],
+            [ErrorCode.INTERVIEW_SESSION_NOT_FOUND]: [
+                'Start a new interview session',
+                'Check if your session has expired',
+                'Clear browser cache and try again'
+            ],
+            [ErrorCode.INTERVIEW_ALREADY_STARTED]: [
+                'Continue with the current interview',
+                'End the current session if you want to restart',
+                'Contact support if you need to reset your session'
+            ],
             [ErrorCode.NETWORK_ERROR]: [
                 'Check your internet connection',
                 'Try refreshing the page',
                 'Switch to a more stable network if possible'
+            ],
+            [ErrorCode.TIMEOUT_ERROR]: [
+                'Try the request again',
+                'Check your internet connection speed',
+                'Wait a moment before retrying'
+            ],
+            [ErrorCode.VALIDATION_ERROR]: [
+                'Check your input for any errors',
+                'Ensure all required fields are filled',
+                'Try refreshing the page and entering data again'
             ],
             [ErrorCode.PERMISSION_DENIED]: [
                 'Click the camera/microphone icon in your browser address bar',
@@ -159,7 +184,7 @@ export class InterviewErrorHandler {
         fallbackValue: T,
         errorCode: ErrorCode = ErrorCode.UNKNOWN_ERROR
     ): Promise<T> {
-        return promise.catch((error) => {
+        return promise.catch((error: unknown) => {
             const interviewError = this.createError(errorCode, error);
             this.logError(interviewError);
             return fallbackValue;
@@ -173,7 +198,7 @@ export class InterviewErrorHandler {
         return async (...args: T): Promise<R | null> => {
             try {
                 return await fn(...args);
-            } catch (error) {
+            } catch (error: unknown) {
                 const interviewError = this.createError(errorCode, error);
                 this.logError(interviewError);
                 return null;
@@ -204,19 +229,20 @@ export class InterviewErrorHandler {
 }
 
 // Utility functions for common error scenarios
-export const handleSpeechError = (error: any) => {
+export const handleSpeechError = (error: unknown) => {
     let code = ErrorCode.SPEECH_RECOGNITION_FAILED;
 
-    if (error?.error === 'not-allowed') {
+    const speechError = error as any;
+    if (speechError?.error === 'not-allowed') {
         code = ErrorCode.PERMISSION_DENIED;
-    } else if (error?.error === 'network') {
+    } else if (speechError?.error === 'network') {
         code = ErrorCode.NETWORK_ERROR;
     }
 
     return InterviewErrorHandler.createError(code, error);
 };
 
-export const handleAPIError = (error: any, apiType: 'llm' | 'daily' | 'database') => {
+export const handleAPIError = (error: unknown, apiType: 'llm' | 'daily' | 'database') => {
     const codeMap = {
         llm: ErrorCode.LLM_API_ERROR,
         daily: ErrorCode.DAILY_API_ERROR,
@@ -226,8 +252,9 @@ export const handleAPIError = (error: any, apiType: 'llm' | 'daily' | 'database'
     return InterviewErrorHandler.createError(codeMap[apiType], error);
 };
 
-export const handleNetworkError = (error: any) => {
-    const code = error?.name === 'TimeoutError' ?
+export const handleNetworkError = (error: unknown) => {
+    const networkError = error as any;
+    const code = networkError?.name === 'TimeoutError' ?
         ErrorCode.TIMEOUT_ERROR :
         ErrorCode.NETWORK_ERROR;
 

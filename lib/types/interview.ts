@@ -93,12 +93,12 @@ export type InterviewPhase =
 export interface InterviewError {
     code: string;
     message: string;
-    details?: any;
+    details?: Record<string, unknown>;
     timestamp: number;
 }
 
 // API Response Types
-export interface APIResponse<T = any> {
+export interface APIResponse<T = unknown> {
     success: boolean;
     data?: T;
     error?: InterviewError;
@@ -157,4 +157,23 @@ export interface InterviewTemplate {
     isActive: boolean;
     createdAt: number;
     updatedAt: number;
+}
+
+// Database Document Types
+export interface SessionDocument {
+    _id: string;
+    roomUrl?: string;
+    startedAt: Date;
+    completedAt?: Date;
+    status: string;
+    transcript: string;
+    responses: unknown[];
+    metadata: Record<string, unknown>;
+    scoring?: ScoringResult;
+    rawLLMText?: string;
+    rawLLMError?: string;
+    scoredAt?: Date;
+    createdAt: Date;
+    updatedAt: Date;
+    __v: number;
 }

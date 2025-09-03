@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 
-// eslint-disable-next-line @next/next/no-async-client-component
 export default function Home() {
   const { data: session, status } = useSession();
 

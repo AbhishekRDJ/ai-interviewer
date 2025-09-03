@@ -1,5 +1,5 @@
 // lib/services/InterviewService.ts
-import { InterviewQuestion, InterviewConfig } from '@/interview-config/interviewConfig';
+import { InterviewQuestion, InterviewConfig } from '../../interview-config/interviewConfig';
 
 export type InterviewPhase = "idle" | "speaking" | "listening" | "evaluating" | "wrap_up" | "completed";
 
@@ -20,8 +20,8 @@ export interface InterviewState {
 }
 
 export interface InterviewCallbacks {
-    onPhaseChange: (phase: InterviewPhase) => void;
-    onQuestionChange: (question: InterviewQuestion | null, index: number) => void;
+    onStateChange: (state: InterviewState) => void;
+    onQuestionAsked: (question: string) => void;
     onResponseRecorded: (response: string) => void;
     onError: (error: string) => void;
     onComplete: (results: any) => void;
@@ -285,11 +285,11 @@ export class InterviewService {
         this.state = { ...this.state, ...updates };
 
         if (updates.phase && updates.phase !== prevPhase) {
-            this.callbacks.onPhaseChange(updates.phase);
+            this.callbacks.onStateChange(this.state);
         }
 
         if (updates.currentQuestion !== prevQuestion || updates.currentIndex !== prevIndex) {
-            this.callbacks.onQuestionChange(this.state.currentQuestion, this.state.currentIndex);
+            this.callbacks.onQuestionAsked(this.state.currentQuestion!.question);
         }
     }
 
