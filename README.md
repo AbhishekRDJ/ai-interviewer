@@ -1,4 +1,8 @@
 # AI Interview Prototype
+## https://ai-interviewer-weld.vercel.app/
+
+# Live Demo:
+## https://www.loom.com/share/1333522124f64a1a822d84fd0232e053?sid=ba1d5c17-6a6b-4f69-beab-e1456c3030cc
 
 An AI-powered interview system that conducts real-time video interviews with speech recognition, natural language processing, and automated scoring.
 
